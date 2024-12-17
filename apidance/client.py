@@ -21,8 +21,18 @@ class TwitterClient:
         self.api_key = api_key or os.getenv("APIDANCE_API_KEY")
         if not self.api_key:
             raise ValueError(
-                "API key must be provided either through constructor or APIDANCE_API_KEY env var"
+                "API key must be provided either through constructor or APIDANCE_API_KEY environment variable"
             )
+
+        # Check balance
+        balance = self.check_balance()
+        if int(balance) < 100:
+            print(
+                f"Warning: Your API balance is low ({balance}). Please recharge your account."
+            )
+            response = input("Do you want to continue? [y/N]: ")
+            if response.lower() != "y":
+                raise SystemExit("Operation cancelled by user.")
 
         self.base_url = "https://api.apidance.pro"
         self.client = httpx.Client()
@@ -48,7 +58,7 @@ class TwitterClient:
         if "params" in kwargs and "variables" in kwargs["params"]:
             kwargs["params"]["variables"] = json.dumps(kwargs["params"]["variables"])
 
-        max_retries = 5
+        max_retries = 10
         for i in range(1, max_retries + 1):
             try:
                 response = self.client.request(
@@ -57,10 +67,8 @@ class TwitterClient:
             except httpx.ConnectTimeout:
                 raise TimeoutError("The handshake operation timed out") from None
             if response.status_code != 200 or response.text == "local_rate_limited":
-                # Rate limit exceeded, wait and retry
-                print(
-                    f"Rate limit exceeded, waiting 1 second before retrying ({i}/{max_retries})"
-                )
+                if i == max_retries:  # If this was the last retry
+                    return []
                 time.sleep(1)
             else:
                 data = response.json()
@@ -73,6 +81,15 @@ class TwitterClient:
         ):
             return data["data"]["user"]["result"]
         return data
+
+    def check_balance(self) -> int:
+        """Check the remaining balance for the API key.
+
+        Returns:
+            int: Remaining balance
+        """
+        response = httpx.get(f"https://api.apidance.pro/key/{self.api_key}")
+        return response.text
 
     def search_timeline(
         self,
@@ -253,7 +270,7 @@ class TwitterClient:
                             tweets.append(Tweet.from_api_response(tweet_data))
             elif (
                 instruction.get("type") == "TimelinePinEntry" and "entry" in instruction
-            ):
+            ):  # Pin tweet
                 entry = instruction["entry"]
                 if "content" in entry and "itemContent" in entry["content"]:
                     tweet_data = entry["content"]["itemContent"]
