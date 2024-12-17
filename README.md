@@ -5,7 +5,7 @@ A Python SDK for interacting with the Apidance API (https://apidance.pro/).
 ## Installation
 
 ```bash
-pip install apidance-sdk
+pip install apidance
 ```
 
 ## Configuration
@@ -23,6 +23,8 @@ client = TwitterClient(api_key="your_api_key_here")
 ```
 
 ## Usage
+
+> Check out the [examples](https://github.com/script-money/apidance/tree/main/examples)
 
 ```python
 from apidance import TwitterClient
@@ -58,13 +60,6 @@ The SDK provides two main data models:
 
 - `Tweet`: Represents a Twitter post with all its metadata
 - `User`: Contains detailed user information including profile data, stats, and verification status
-
-## Error Handling
-
-The SDK includes built-in error handling for:
-- Rate limiting with automatic retries
-- Connection timeouts
-- API response validation
 
 ## License
 
