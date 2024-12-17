@@ -11,16 +11,34 @@ class User:
     followers_count: int
     following_count: int
     description: Optional[str] = None
+    url: Optional[str] = None
 
     @classmethod
     def from_api_response(cls, data: Dict) -> "User":
+        legacy = data.get("legacy", {})
+        description = legacy.get("description")
+
+        entities = legacy.get("entities", {})
+        if description and entities.get("description", {}).get("urls"):
+            for url_data in entities["description"]["urls"]:
+                description = description.replace(
+                    url_data["url"], url_data["expanded_url"]
+                )
+
+        profile_url = ""
+        if entities.get("url", {}).get("urls"):
+            profile_url = (
+                entities.get("url", {}).get("urls", [{}])[0].get("expanded_url", "")
+            )
+
         return cls(
-            id=data.get("id", ""),
-            name=data.get("legacy", {}).get("name", ""),
-            username=data.get("legacy", {}).get("screen_name", ""),
-            followers_count=data.get("legacy", {}).get("followers_count", 0),
-            following_count=data.get("legacy", {}).get("friends_count", 0),
-            description=data.get("legacy", {}).get("description"),
+            id=data.get("rest_id", ""),
+            name=legacy.get("name", ""),
+            username=legacy.get("screen_name", ""),
+            followers_count=legacy.get("followers_count", 0),
+            following_count=legacy.get("friends_count", 0),
+            description=description,
+            url=profile_url,
         )
 
 
@@ -41,7 +59,7 @@ class URL:
 
 @dataclass
 class UserMention:
-    id_str: str
+    id: str
     name: str
     screen_name: str
 
@@ -51,7 +69,7 @@ class Tweet:
     id: str
     text: str
     created_at: int  # Unix timestamp
-    user: User
+    userid: str
     favorite_count: int
     retweet_count: int
     reply_count: int
@@ -70,17 +88,6 @@ class Tweet:
         if legacy == {}:
             legacy = result.get("tweet", {}).get("legacy", {})
         core = result.get("core", {}) or {}
-        user_data = core.get("user_results", {}).get("result", {}).get("legacy", {})
-
-        # Parse user data
-        user = User(
-            id=core.get("user_results", {}).get("result", {}).get("rest_id", ""),
-            name=user_data.get("name", ""),
-            username=user_data.get("screen_name", ""),
-            followers_count=user_data.get("followers_count", 0),
-            following_count=user_data.get("friends_count", 0),
-            description=user_data.get("description"),
-        )
 
         # Parse URL and user mentions
         urls = []
@@ -99,7 +106,7 @@ class Tweet:
             for mention in legacy["entities"]["user_mentions"]:
                 user_memtions.append(
                     UserMention(
-                        id_str=mention["id_str"],
+                        id=mention["id_str"],
                         name=mention["name"],
                         screen_name=mention["screen_name"],
                     )
@@ -135,7 +142,7 @@ class Tweet:
                     legacy.get("created_at", ""), "%a %b %d %H:%M:%S %z %Y"
                 ).timestamp()
             ),
-            user=user,
+            userid=core.get("user_results", {}).get("result", {}).get("rest_id", ""),
             favorite_count=legacy.get("favorite_count", 0),
             retweet_count=legacy.get("retweet_count", 0),
             reply_count=legacy.get("reply_count", 0),

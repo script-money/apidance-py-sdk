@@ -264,9 +264,14 @@ class TwitterClient:
         for instruction in timeline:
             if "entries" in instruction:
                 for entry in instruction["entries"]:
-                    if "content" in entry and "itemContent" in entry["content"]:
-                        tweet_data = entry["content"]["itemContent"]
-                        if tweet_data.get("__typename") == "TimelineTweet":
+                    content = entry.get("content")
+                    if content.get("__typename") == "TimelineTimelineItem":
+                        tweet_data = content["itemContent"]
+                        tweets.append(Tweet.from_api_response(tweet_data))
+                    elif content.get("__typename") == "TimelineTimelineModule":
+                        thread_data = content["items"]
+                        for thread_item in thread_data:
+                            tweet_data = thread_item.get("item").get("itemContent")
                             tweets.append(Tweet.from_api_response(tweet_data))
             elif (
                 instruction.get("type") == "TimelinePinEntry" and "entry" in instruction
@@ -274,7 +279,6 @@ class TwitterClient:
                 entry = instruction["entry"]
                 if "content" in entry and "itemContent" in entry["content"]:
                     tweet_data = entry["content"]["itemContent"]
-                    if tweet_data.get("__typename") == "TimelineTweet":
-                        tweets.append(Tweet.from_api_response(tweet_data))
+                    tweets.append(Tweet.from_api_response(tweet_data))
 
         return tweets
