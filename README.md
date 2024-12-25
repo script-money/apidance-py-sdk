@@ -40,6 +40,8 @@ tweets = client.search_timeline(
 # Get user information
 user = client.get_user_by_screen_name("example")
 
+users = client.get_following(user_id=user["id"])
+
 # Get tweets from a list
 list_tweets = client.get_list_latest_tweets(
     list_id="your_list_id",
@@ -51,8 +53,7 @@ list_tweets = client.get_list_latest_tweets(
 - Search Twitter timeline with various filters (Latest, Top, People, Photos, Videos)
 - Get detailed user information by screen name
 - Fetch tweets from Twitter lists
-- Automatic rate limit handling and retries
-- Type hints and data models for better development experience
+- Search Following
 
 ## Models
 

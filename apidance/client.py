@@ -282,3 +282,49 @@ class TwitterClient:
                     tweets.append(Tweet.from_api_response(tweet_data))
 
         return tweets
+
+    def get_following(self, user_id: str) -> List[User]:
+        """Get a list of users that the specified user is following.
+
+        Args:
+            user_id: The user ID to get following for
+
+        Returns:
+            List of User objects
+        """
+
+        variables = {
+            "userId": user_id,
+            "includePromotedContent": False,
+        }
+
+        response = self._make_request(
+            "GET",
+            "/graphql/Following",
+            params={"variables": variables},
+        )
+
+        # Extract users from the nested timeline structure
+        timeline = response.get("timeline", {}).get("timeline", {})
+        instructions = timeline.get("instructions", [])
+
+        users = []
+        for instruction in instructions:
+            # Skip TimelineClearCache type instructions
+            if instruction.get("type") == "TimelineClearCache":
+                continue
+
+            # Handle entries if present
+            entries = instruction.get("entries", [])
+            if entries:
+                for entry in entries:
+                    content = entry.get("content", {})
+                    if (
+                        content.get("itemContent", {})
+                        .get("user_results", {})
+                        .get("result")
+                    ):
+                        user_data = content["itemContent"]["user_results"]["result"]
+                        users.append(User.from_api_response(user_data))
+
+        return users
