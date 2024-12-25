@@ -1,5 +1,4 @@
 import os
-import json
 
 from apidance.client import TwitterClient
 
@@ -20,6 +19,12 @@ def example_twitter_client():
     tweets = client.get_user_tweets(user_id="1833183120126095360", count=20)
     print(f"\nFound {len(tweets)} tweets:")
     print(tweets[0])
+
+    # Example: Get user following
+    users = client.get_following(user_id="1146492710582308864")
+    user_handles = [user.username for user in users]
+    print(f"\nFound {len(user_handles)} users:")
+    print(user_handles)
 
     # Example: Search tweets
     search_results = client.search_timeline(

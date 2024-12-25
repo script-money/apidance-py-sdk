@@ -264,9 +264,14 @@ class TwitterClient:
         for instruction in timeline:
             if "entries" in instruction:
                 for entry in instruction["entries"]:
-                    if "content" in entry and "itemContent" in entry["content"]:
-                        tweet_data = entry["content"]["itemContent"]
-                        if tweet_data.get("__typename") == "TimelineTweet":
+                    content = entry.get("content")
+                    if content.get("__typename") == "TimelineTimelineItem":
+                        tweet_data = content["itemContent"]
+                        tweets.append(Tweet.from_api_response(tweet_data))
+                    elif content.get("__typename") == "TimelineTimelineModule":
+                        thread_data = content["items"]
+                        for thread_item in thread_data:
+                            tweet_data = thread_item.get("item").get("itemContent")
                             tweets.append(Tweet.from_api_response(tweet_data))
             elif (
                 instruction.get("type") == "TimelinePinEntry" and "entry" in instruction
@@ -274,7 +279,52 @@ class TwitterClient:
                 entry = instruction["entry"]
                 if "content" in entry and "itemContent" in entry["content"]:
                     tweet_data = entry["content"]["itemContent"]
-                    if tweet_data.get("__typename") == "TimelineTweet":
-                        tweets.append(Tweet.from_api_response(tweet_data))
+                    tweets.append(Tweet.from_api_response(tweet_data))
 
         return tweets
+
+    def get_following(self, user_id: str) -> List[User]:
+        """Get a list of users that the specified user is following.
+
+        Args:
+            user_id: The user ID to get following for
+
+        Returns:
+            List of User objects
+        """
+
+        variables = {
+            "userId": user_id,
+            "includePromotedContent": False,
+        }
+
+        response = self._make_request(
+            "GET",
+            "/graphql/Following",
+            params={"variables": variables},
+        )
+
+        # Extract users from the nested timeline structure
+        timeline = response.get("timeline", {}).get("timeline", {})
+        instructions = timeline.get("instructions", [])
+
+        users = []
+        for instruction in instructions:
+            # Skip TimelineClearCache type instructions
+            if instruction.get("type") == "TimelineClearCache":
+                continue
+
+            # Handle entries if present
+            entries = instruction.get("entries", [])
+            if entries:
+                for entry in entries:
+                    content = entry.get("content", {})
+                    if (
+                        content.get("itemContent", {})
+                        .get("user_results", {})
+                        .get("result")
+                    ):
+                        user_data = content["itemContent"]["user_results"]["result"]
+                        users.append(User.from_api_response(user_data))
+
+        return users

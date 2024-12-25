@@ -5,7 +5,7 @@ A Python SDK for interacting with the Apidance API (https://apidance.pro/).
 ## Installation
 
 ```bash
-pip install apidance-sdk
+pip install apidance
 ```
 
 ## Configuration
@@ -24,6 +24,8 @@ client = TwitterClient(api_key="your_api_key_here")
 
 ## Usage
 
+> Check out the [examples](https://github.com/script-money/apidance/tree/main/examples)
+
 ```python
 from apidance import TwitterClient
 
@@ -38,6 +40,8 @@ tweets = client.search_timeline(
 # Get user information
 user = client.get_user_by_screen_name("example")
 
+users = client.get_following(user_id=user["id"])
+
 # Get tweets from a list
 list_tweets = client.get_list_latest_tweets(
     list_id="your_list_id",
@@ -49,8 +53,7 @@ list_tweets = client.get_list_latest_tweets(
 - Search Twitter timeline with various filters (Latest, Top, People, Photos, Videos)
 - Get detailed user information by screen name
 - Fetch tweets from Twitter lists
-- Automatic rate limit handling and retries
-- Type hints and data models for better development experience
+- Search Following
 
 ## Models
 
@@ -58,13 +61,6 @@ The SDK provides two main data models:
 
 - `Tweet`: Represents a Twitter post with all its metadata
 - `User`: Contains detailed user information including profile data, stats, and verification status
-
-## Error Handling
-
-The SDK includes built-in error handling for:
-- Rate limiting with automatic retries
-- Connection timeouts
-- API response validation
 
 ## License
 
