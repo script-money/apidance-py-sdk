@@ -16,12 +16,25 @@ def example_twitter_client():
     print(f"User info: {user_info}")
 
     # Example: Get user tweets
-    tweets = client.get_user_tweets(user_id="1833183120126095360", count=20)
+    tweets = client.get_user_tweets(user_id=user_info.id, count=20)
     print(f"\nFound {len(tweets)} tweets:")
     print(tweets[0])
 
+    # Example: Get tweet
+    result = client.tweet_result_by_rest_id(tweets[0].id)
+    print(result)
+
+    # Example: Favorite tweet
+    client.favorite_tweet(tweets[0].id)
+
+    # Example: Reply to tweet
+    client.create_tweet(
+        text="You are geniuses! Are you? @OverlordBot_",
+        reply_to_tweet_id="1877189985620639945",
+    )
+
     # Example: Get user following
-    users = client.get_following(user_id="1146492710582308864")
+    users = client.get_following(user_id=user_info.id)
     user_handles = [user.username for user in users]
     print(f"\nFound {len(user_handles)} users:")
     print(user_handles)

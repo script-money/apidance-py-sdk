@@ -14,12 +14,22 @@ Create a `.env` file in your project root with your API credentials:
 
 ```env
 APIDANCE_API_KEY=your_api_key_here
+AUTH_TOKEN=your_auth_token_here  # Required for reply/like actions
 ```
 
-Or provide the API key directly when initializing the client:
+You can find your `auth_token` in your browser cookies when logged into x.com:
+1. Open x.com and log in
+2. Open browser developer tools (F12 or right-click -> Inspect)
+3. Go to Application/Storage -> Cookies -> x.com
+4. Find and copy the value of `auth_token`
+
+Or provide the credentials directly when initializing the client:
 
 ```python
-client = TwitterClient(api_key="your_api_key_here")
+client = TwitterClient(
+    api_key="your_api_key_here",
+    auth_token="your_auth_token_here"  # Required for reply/like actions
+)
 ```
 
 ## Usage
@@ -46,6 +56,15 @@ users = client.get_following(user_id=user["id"])
 list_tweets = client.get_list_latest_tweets(
     list_id="your_list_id",
 )
+
+# Reply to a tweet
+client.create_tweet(
+    text="Your reply text",
+    reply_to_tweet_id="tweet_id_to_reply_to",
+)
+
+# Like a tweet
+client.favorite_tweet(tweet_id="tweet_id_to_like")
 ```
 
 ## Features
@@ -54,6 +73,8 @@ list_tweets = client.get_list_latest_tweets(
 - Get detailed user information by screen name
 - Fetch tweets from Twitter lists
 - Search Following
+- Reply to tweets (requires auth_token)
+- Like tweets (requires auth_token)
 
 ## Models
 
