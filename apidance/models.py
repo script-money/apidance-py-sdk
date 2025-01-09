@@ -82,12 +82,41 @@ class Tweet:
 
     @classmethod
     def from_api_response(cls, data: Dict[str, Any]) -> "Tweet":
-        """Create a Tweet instance from API response data."""
-        result = data.get("tweet_results", {}).get("result", {})
-        legacy = result.get("legacy", {})
-        if legacy == {}:
-            legacy = result.get("tweet", {}).get("legacy", {})
-        core = result.get("core", {}) or {}
+        """Create a Tweet instance from API response data.
+
+        Args:
+            data: A dictionary containing tweet data from the API response.
+
+        Returns:
+            A Tweet object constructed from the provided data.
+        """
+
+        # Get tweet result from either "tweet_results" or "tweetResult"
+        tweet_result = data.get("tweet_results", {}).get("result") or data.get(
+            "tweetResult", {}
+        ).get("result", {})
+
+        # Handle visibility results and extract legacy data
+        legacy = (
+            tweet_result["tweet"]["legacy"]
+            if tweet_result.get("__typename") == "TweetWithVisibilityResults"
+            else tweet_result.get("legacy", tweet_result)
+        )
+        core = tweet_result.get("core", {})
+
+        # Get user ID from various possible locations
+        userid = (
+            core.get("user_results", {}).get("result", {}).get("rest_id")
+            or legacy.get("user_id_str")
+            or tweet_result.get("user_id_str", "")
+        )
+
+        # Get text content from various possible locations
+        text = (
+            legacy.get("full_text")
+            or tweet_result.get("full_text")
+            or legacy.get("text", "")
+        )
 
         # Parse URL and user mentions
         urls = []
@@ -101,10 +130,10 @@ class Tweet:
                     )
                 )
 
-        user_memtions = []
+        user_mentions = []
         if "entities" in legacy and "user_mentions" in legacy["entities"]:
             for mention in legacy["entities"]["user_mentions"]:
-                user_memtions.append(
+                user_mentions.append(
                     UserMention(
                         id=mention["id_str"],
                         name=mention["name"],
@@ -135,21 +164,22 @@ class Tweet:
             )
 
         return cls(
-            id=legacy.get("id_str", ""),
-            text=legacy.get("full_text", ""),
+            id=legacy.get("id_str") or tweet_result.get("id_str", ""),
+            text=text,
             created_at=int(
                 datetime.strptime(
-                    legacy.get("created_at", ""), "%a %b %d %H:%M:%S %z %Y"
+                    legacy.get("created_at") or tweet_result.get("created_at", ""),
+                    "%a %b %d %H:%M:%S %z %Y",
                 ).timestamp()
             ),
-            userid=core.get("user_results", {}).get("result", {}).get("rest_id", ""),
+            userid=userid,
             favorite_count=legacy.get("favorite_count", 0),
             retweet_count=legacy.get("retweet_count", 0),
             reply_count=legacy.get("reply_count", 0),
             quote_count=legacy.get("quote_count", 0),
             media=media_list if media_list else None,
             urls=urls if urls else None,
-            user_mentions=user_memtions if user_memtions else None,
+            user_mentions=user_mentions if user_mentions else None,
             is_retweet=is_retweet,
             retweet_status=retweet_status,
         )
