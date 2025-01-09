@@ -305,6 +305,8 @@ class TwitterClient:
         )
 
         # Extract users from the nested timeline structure
+        if not isinstance(response, dict):
+            return []
         timeline = response.get("timeline", {}).get("timeline", {})
         instructions = timeline.get("instructions", [])
 
