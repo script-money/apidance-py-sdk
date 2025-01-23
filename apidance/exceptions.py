@@ -1,20 +1,18 @@
-class TwitterAPIError(Exception):
-    """Base exception for Twitter API errors."""
-
-    def __init__(self, message, code=None, **kwargs):
-        super().__init__(message)
-        self.code = code
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+class AuthenticationError(Exception):
+    "Raised when authentication fails"
+    pass
 
 
-class AuthenticationError(TwitterAPIError):
-    """Raised when authentication fails (401 errors).
+class RateLimitError(Exception):
+    "Raised when API rate limit is exceeded"
+    pass
 
-    Examples:
-    - Invalid API key
-    - Expired token
-    - Invalid credentials
-    """
 
+class InsufficientCreditsError(Exception):
+    "Raised when the account has insufficient API credits"
+    pass
+
+
+class TimeoutError(Exception):
+    "Raised when a request times out"
     pass
