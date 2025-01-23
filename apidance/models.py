@@ -92,6 +92,9 @@ class Tweet:
         """
 
         # Get tweet result from either "tweet_results" or "tweetResult"
+        if data.get("tweet_results") == {}:
+            return
+
         tweet_result = data.get("tweet_results", {}).get("result") or data.get(
             "tweetResult", {}
         ).get("result", {})

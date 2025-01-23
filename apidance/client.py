@@ -353,48 +353,24 @@ class TwitterClient:
 
         return tweets
 
-    def get_user_tweets(
-        self,
-        user_id: str,
-        count: int = 20,
-        include_promoted_content: bool = False,
-        with_quick_promote_eligibility_tweet_fields: bool = True,
-        with_voice: bool = True,
-        with_v2_timeline: bool = True,
+    def _extract_tweets_from_response(
+        self, response: Dict, include_pins: bool
     ) -> List[Tweet]:
-        """Get tweets from a specific user using GraphQL endpoint.
+        """Extract tweets from API response.
 
         Args:
-            user_id: Twitter user ID
-            count: Number of tweets to return (default: 20)
-            include_promoted_content: Include promoted content in results (default: False)
-            with_quick_promote_eligibility_tweet_fields: Include quick promote eligibility fields (default: True)
-            with_voice: Include voice tweet information (default: True)
-            with_v2_timeline: Include v2 timeline information (default: True)
+            response: Raw API response
+            include_pins: Whether to include pinned tweets
 
         Returns:
-            List of Tweet objects containing tweet content, media, and related information
+            List of Tweet objects
         """
-        variables = {
-            "userId": user_id,
-            "count": count,
-            "includePromotedContent": include_promoted_content,
-            "withQuickPromoteEligibilityTweetFields": with_quick_promote_eligibility_tweet_fields,
-            "withVoice": with_voice,
-            "withV2Timeline": with_v2_timeline,
-        }
-
-        response = self._make_request(
-            "GET",
-            "/graphql/UserTweets",
-            params={"variables": variables},
-        )
-
         tweets = []
         data = response.get("data", {}).get("user", {}).get("result", {})
         timeline = (
             data.get("timeline_v2", {}).get("timeline", {}).get("instructions", [])
         )
+
         for instruction in timeline:
             if "entries" in instruction:
                 for entry in instruction["entries"]:
@@ -408,7 +384,9 @@ class TwitterClient:
                             tweet_data = thread_item.get("item").get("itemContent")
                             tweets.append(Tweet.from_api_response(tweet_data))
             elif (
-                instruction.get("type") == "TimelinePinEntry" and "entry" in instruction
+                instruction.get("type") == "TimelinePinEntry"
+                and "entry" in instruction
+                and include_pins
             ):  # Pin tweet
                 entry = instruction["entry"]
                 if "content" in entry and "itemContent" in entry["content"]:
@@ -416,6 +394,125 @@ class TwitterClient:
                     tweets.append(Tweet.from_api_response(tweet_data))
 
         return tweets
+
+    def _get_bottom_cursor(self, response: Dict) -> Optional[str]:
+        """Extract bottom cursor from API response.
+
+        Args:
+            response: Raw API response
+
+        Returns:
+            Cursor value if found, None otherwise
+        """
+        data = response.get("data", {}).get("user", {}).get("result", {})
+        timeline = (
+            data.get("timeline_v2", {}).get("timeline", {}).get("instructions", [])
+        )
+
+        for instruction in timeline:
+            if "entries" in instruction:
+                for entry in instruction["entries"]:
+                    content = entry.get("content", {})
+                    if (
+                        content.get("__typename") == "TimelineTimelineCursor"
+                        and content.get("cursorType") == "Bottom"
+                    ):
+                        return content.get("value")
+        return None
+
+    def has_more_tweets(self, response: Dict) -> bool:
+        """Check if there are more tweets to fetch.
+
+        Args:
+            response: Raw API response
+
+        Returns:
+            True if there are more tweets, False otherwise
+        """
+        data = response.get("data", {}).get("user", {}).get("result", {})
+        timeline = (
+            data.get("timeline_v2", {}).get("timeline", {}).get("instructions", [])
+        )
+
+        for instruction in timeline:
+            if "entries" in instruction:
+                for entry in instruction["entries"]:
+                    content = entry.get("content")
+                    if content.get("__typename") == "TimelineTimelineItem":
+                        return True
+        return False
+
+    def get_user_tweets(
+        self,
+        user_id: str,
+        count: int = 20,
+        include_pins: bool = True,
+        include_promoted_content: bool = False,
+        with_quick_promote_eligibility_tweet_fields: bool = False,
+        with_voice: bool = False,
+        with_v2_timeline: bool = True,
+    ) -> List[Tweet]:
+        """Get tweets from a specific user using GraphQL endpoint.
+
+        Args:
+            user_id: Twitter user ID
+            count: Number of tweets to return (default: 20, set to -1 for all tweets)
+            include_promoted_content: Include promoted content in results (default: False)
+            with_quick_promote_eligibility_tweet_fields: Include quick promote eligibility fields (default: False)
+            with_voice: Include voice tweet information (default: False)
+            with_v2_timeline: Include v2 timeline information (default: True)
+
+        Returns:
+            List of Tweet objects containing tweet content, media, and related information
+        """
+        all_tweets = []
+        cursor = None
+        batch_size = 20  # Twitter API limit
+
+        while True:
+            variables = {
+                "userId": user_id,
+                "count": batch_size,
+                "cursor": cursor,
+                "includePromotedContent": include_promoted_content,
+                "withQuickPromoteEligibilityTweetFields": with_quick_promote_eligibility_tweet_fields,
+                "withVoice": with_voice,
+                "withV2Timeline": with_v2_timeline,
+            }
+
+            response = self._make_request(
+                "GET",
+                "/graphql/UserTweets",
+                params={"variables": variables},
+            )
+
+            # Extract tweets from response
+            new_tweets = self._extract_tweets_from_response(
+                response, include_pins=include_pins
+            )
+            all_tweets.extend(
+                [
+                    tweet
+                    for tweet in new_tweets
+                    if tweet and tweet.id not in {t.id for t in all_tweets}
+                ]
+            )
+
+            # Stop if we've reached the desired count or there are no more tweets
+            if count != -1 and len(all_tweets) >= count:
+                all_tweets = all_tweets[:count]
+                break
+
+            # Check if there are more tweets to fetch
+            if not self.has_more_tweets(response):
+                break
+
+            # Get cursor for next page
+            cursor = self._get_bottom_cursor(response)
+            if not cursor:
+                break
+
+        return all_tweets
 
     def get_following(self, user_id: str) -> List[User]:
         """Get a list of users that the specified user is following.
