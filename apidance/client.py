@@ -353,51 +353,78 @@ class TwitterClient:
 
         Args:
             list_id: ID of the Twitter list
-            count: Number of tweets to return (default: 20)
+            count: Number of tweets to return (default: 20, set to -1 for all available results)
             include_promoted_content: Include promoted content in results (default: False)
 
         Returns:
             List of Tweet objects from the specified list
         """
-        variables = {
-            "listId": list_id,
-            "count": count,
-            "includePromotedContent": include_promoted_content,
-        }
+        all_tweets = []
+        cursor = None
 
-        response = self._make_request(
-            "GET",
-            "/graphql/ListLatestTweetsTimeline",
-            params={"variables": variables},
-        )
+        while True:
+            variables = {
+                "listId": list_id,
+                "count": count,
+                "includePromotedContent": include_promoted_content,
+            }
+            if cursor:
+                variables["cursor"] = cursor
 
-        tweets = []
-        timeline = (
-            response.get("data", {})
-            .get("list", {})
-            .get("tweets_timeline", {})
-            .get("timeline", {})
-            .get("instructions", [])
-        )
-        for instruction in timeline:
-            # Skip TimelineClearCache type instructions
-            if instruction.get("type") == "TimelineClearCache":
-                continue
+            response = self._make_request(
+                "GET",
+                "/graphql/ListLatestTweetsTimeline",
+                params={"variables": variables},
+            )
 
-            # Handle entries if present
-            entries = instruction.get("entries", [])
-            if entries:
-                for entry in entries:
-                    content = entry.get("content", {})
-                    if (
-                        content.get("itemContent", {})
-                        .get("user_results", {})
-                        .get("result")
-                    ):
-                        user_data = content["itemContent"]["user_results"]["result"]
-                        tweets.append(User.from_api_response(user_data))
+            # Extract tweets from current page
+            timeline = (
+                response.get("data", {})
+                .get("list", {})
+                .get("tweets_timeline", {})
+                .get("timeline", {})
+                .get("instructions", [])
+            )
+            if not timeline:
+                break
 
-        return tweets
+            entries = timeline[0].get("entries", [])
+            new_tweets = []
+            cursor = None
+
+            for entry in entries:
+                content = entry.get("content", {})
+
+                # Handle regular tweets
+                if content.get("__typename") == "TimelineTimelineItem":
+                    tweet_data = content["itemContent"]
+                    new_tweets.append(Tweet.from_api_response(tweet_data))
+
+                # Extract cursor for next page
+                elif (
+                    content.get("__typename") == "TimelineTimelineCursor"
+                    and content["cursorType"] == "Bottom"
+                ):
+                    cursor = content["value"]
+
+                # Handle tweets in modules
+                elif content.get("__typename") == "TimelineTimelineModule":
+                    for item in content["items"]:
+                        tweet_data = item["item"]["itemContent"]
+                        new_tweets.append(Tweet.from_api_response(tweet_data))
+
+            all_tweets.extend(new_tweets)
+
+            # Stop if we've reached the desired count
+            if count != -1 and len(all_tweets) >= count:
+                all_tweets = all_tweets[:count]
+                break
+
+            # Stop if no cursor found or no new tweets
+            if not cursor or not new_tweets:
+                break
+
+        return all_tweets
 
     def _extract_tweets_from_response(
         self, response: Dict, include_pins: bool
