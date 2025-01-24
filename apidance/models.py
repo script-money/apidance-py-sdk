@@ -52,7 +52,6 @@ class Media:
 
 @dataclass
 class URL:
-    display_url: str
     expanded_url: str
     url: str
 
@@ -74,6 +73,7 @@ class Tweet:
     retweet_count: int
     reply_count: int
     quote_count: int
+    bookmark_count: int
     media: Optional[List[Media]] = None
     urls: Optional[List[URL]] = None
     user_mentions: Optional[List[UserMention]] = None
@@ -127,7 +127,6 @@ class Tweet:
             for url in legacy["entities"]["urls"]:
                 urls.append(
                     URL(
-                        display_url=url["display_url"],
                         expanded_url=url["expanded_url"],
                         url=url["url"],
                     )
@@ -180,6 +179,7 @@ class Tweet:
             retweet_count=legacy.get("retweet_count", 0),
             reply_count=legacy.get("reply_count", 0),
             quote_count=legacy.get("quote_count", 0),
+            bookmark_count=legacy.get("bookmark_count", 0),
             media=media_list if media_list else None,
             urls=urls if urls else None,
             user_mentions=user_mentions if user_mentions else None,
