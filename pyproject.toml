@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "apidance"
-version = "0.3.0"
+version = "0.3.1"
 description = "https://apidance.pro/ community python sdk"
 authors = ["script-money <hello@script.money>"]
 license = "MIT"
