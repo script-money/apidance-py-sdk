@@ -105,32 +105,20 @@ class Tweet:
             if tweet_result.get("__typename") == "TweetWithVisibilityResults"
             else tweet_result.get("legacy", tweet_result)
         )
-
-        note_tweet = tweet_result.get("note_tweet", {})
+        core = tweet_result.get("core", {})
 
         # Get user ID from various possible locations
         userid = (
-            tweet_result.get("core", {})
-            .get("user_results", {})
-            .get("result", {})
-            .get("rest_id")
+            core.get("user_results", {}).get("result", {}).get("rest_id")
             or legacy.get("user_id_str")
             or tweet_result.get("user_id_str", "")
         )
 
         # Get text content from various possible locations
         text = (
-            (
-                legacy.get("full_text")
-                or tweet_result.get("full_text")
-                or legacy.get("text", "")
-            )
-            if note_tweet == {}
-            else (
-                note_tweet.get("note_tweet_results", {})
-                .get("result", {})
-                .get("text", "")
-            )
+            legacy.get("full_text")
+            or tweet_result.get("full_text")
+            or legacy.get("text", "")
         )
 
         # Parse URL and user mentions
