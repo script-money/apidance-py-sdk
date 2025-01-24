@@ -224,53 +224,89 @@ class TwitterClient:
         query: str,
         product: str = "Latest",
         count: int = 40,
-        cursor: str = "",
         include_promoted_content: bool = False,
     ) -> List[Tweet]:
-        """Search Twitter timeline.
+        """Search Twitter timeline with pagination support.
 
         Args:
             query: Search query string
             product: Type of search results. One of: Top, Latest, People, Photos, Videos
-            count: Number of results to return (default: 40)
-            cursor: Pagination cursor (default: "")
+            count: Number of results to return (default: 40, set to -1 for all available results)
             include_promoted_content: Whether to include promoted content (default: False)
 
         Returns:
             List of Tweet objects from search results
         """
-        variables = {
-            "rawQuery": query,
-            "count": count,
-            "cursor": cursor,
-            "querySource": "typed_query",
-            "product": product,
-            "includePromotedContent": include_promoted_content,
-        }
+        all_tweets = []
+        cursor = None
+        batch_size = 20  # Twitter API default batch size for search
 
-        response = self._make_request(
-            "GET",
-            "/graphql/SearchTimeline",
-            params={"variables": variables},
-        )
+        while True:
+            variables = {
+                "rawQuery": query,
+                "count": batch_size,
+                "cursor": cursor,
+                "querySource": "typed_query",
+                "product": product,
+                "includePromotedContent": include_promoted_content,
+            }
 
-        tweets = []
-        timeline = (
-            response.get("data", {})
-            .get("search_by_raw_query", {})
-            .get("search_timeline", {})
-            .get("timeline", {})
-            .get("instructions", [])
-        )
-        for instruction in timeline:
-            if "entries" in instruction:
-                for entry in instruction["entries"]:
-                    if "content" in entry and "itemContent" in entry["content"]:
-                        tweet_data = entry["content"]["itemContent"]
-                        if tweet_data.get("__typename") == "TimelineTweet":
-                            tweets.append(Tweet.from_api_response(tweet_data))
+            response = self._make_request(
+                "GET",
+                "/graphql/SearchTimeline",
+                params={"variables": variables},
+            )
 
-        return tweets
+            # Extract tweets from response
+            timeline = (
+                response.get("data", {})
+                .get("search_by_raw_query", {})
+                .get("search_timeline", {})
+                .get("timeline", {})
+                .get("instructions", [])
+            )
+
+            new_tweets = []
+            for instruction in timeline:
+                if "entries" in instruction:
+                    for entry in instruction["entries"]:
+                        if "content" in entry and "itemContent" in entry["content"]:
+                            tweet_data = entry["content"]["itemContent"]
+                            if tweet_data.get("__typename") == "TimelineTweet":
+                                new_tweets.append(Tweet.from_api_response(tweet_data))
+
+            # Add new tweets with deduplication
+            all_tweets.extend(
+                [
+                    tweet
+                    for tweet in new_tweets
+                    if tweet and tweet.id not in {t.id for t in all_tweets}
+                ]
+            )
+
+            # Stop if we've reached the desired count
+            if count != -1 and len(all_tweets) >= count:
+                all_tweets = all_tweets[:count]
+                break
+
+            # Get cursor for next page from bottom cursor entry
+            for instruction in timeline:
+                if "entry" in instruction and instruction["entry"][
+                    "entryId"
+                ].startswith("cursor-bottom-"):
+                    cursor = instruction["entry"]["content"]["value"]
+                    break
+                elif "entries" in instruction:
+                    for entry in instruction["entries"]:
+                        if entry["entryId"].startswith("cursor-bottom-"):
+                            cursor = entry["content"]["value"]
+                            break
+
+            # Stop if no cursor found or no new tweets
+            if not cursor or not new_tweets:
+                break
+
+        return all_tweets
 
     def get_user_by_screen_name(
         self,
@@ -344,12 +380,22 @@ class TwitterClient:
             .get("instructions", [])
         )
         for instruction in timeline:
-            if "entries" in instruction:
-                for entry in instruction["entries"]:
-                    if "content" in entry and "itemContent" in entry["content"]:
-                        tweet_data = entry["content"]["itemContent"]
-                        if tweet_data.get("__typename") == "TimelineTweet":
-                            tweets.append(Tweet.from_api_response(tweet_data))
+            # Skip TimelineClearCache type instructions
+            if instruction.get("type") == "TimelineClearCache":
+                continue
+
+            # Handle entries if present
+            entries = instruction.get("entries", [])
+            if entries:
+                for entry in entries:
+                    content = entry.get("content", {})
+                    if (
+                        content.get("itemContent", {})
+                        .get("user_results", {})
+                        .get("result")
+                    ):
+                        user_data = content["itemContent"]["user_results"]["result"]
+                        tweets.append(User.from_api_response(user_data))
 
         return tweets
 
@@ -498,7 +544,7 @@ class TwitterClient:
                 ]
             )
 
-            # Stop if we've reached the desired count or there are no more tweets
+            # Stop if we've reached the desired count
             if count != -1 and len(all_tweets) >= count:
                 all_tweets = all_tweets[:count]
                 break
