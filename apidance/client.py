@@ -116,6 +116,8 @@ class TwitterClient:
                     raise AuthenticationError(
                         "Could not authenticate you. Please check your X_AUTH_TOKEN."
                     )
+                elif error.get("code") == 139:
+                    return
 
             # Handle Apidance API style errors
             if isinstance(response_data, dict):
