@@ -16,3 +16,13 @@ class InsufficientCreditsError(Exception):
 class TimeoutError(Exception):
     "Raised when a request times out"
     pass
+
+
+class InvalidUserIdError(Exception):
+    "Raised when user ID format is invalid"
+    pass
+
+
+class AccountSuspendedError(Exception):
+    "Raised when the account is suspended"
+    pass

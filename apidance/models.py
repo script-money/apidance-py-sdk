@@ -12,6 +12,8 @@ class User:
     following_count: int
     description: Optional[str] = None
     url: Optional[str] = None
+    is_verified: bool = False
+    is_business: bool = False
 
     @classmethod
     def from_api_response(cls, data: Dict) -> "User":
@@ -24,6 +26,9 @@ class User:
                 description = description.replace(
                     url_data["url"], url_data["expanded_url"]
                 )
+
+        is_verified = data.get("is_blue_verified", False)
+        is_business = True if legacy.get("verified_type") == "Business" else False
 
         profile_url = ""
         if entities.get("url", {}).get("urls"):
@@ -39,6 +44,8 @@ class User:
             following_count=legacy.get("friends_count", 0),
             description=description,
             url=profile_url,
+            is_verified=is_verified,
+            is_business=is_business,
         )
 
 
