@@ -181,8 +181,14 @@ class TwitterClient:
 
         # Set request headers
         headers = self.headers.copy()
-        if method.upper() == "POST":
-            token = os.getenv("X_AUTH_TOKEN")
+        token = os.getenv("X_AUTH_TOKEN")
+        # These endpoints need X_AUTH_TOKEN regardless of HTTP method
+        auth_required_endpoints = [
+            "/graphql/FollowersYouKnow",
+            "/graphql/CreateTweet",
+            "/graphql/FavoriteTweet",
+        ]
+        if endpoint in auth_required_endpoints:
             if token:
                 headers["AuthToken"] = token
 
@@ -678,6 +684,84 @@ class TwitterClient:
             response = self._make_request(
                 "GET",
                 "/graphql/Followers",
+                params={"variables": variables},
+            )
+
+            try:
+                entries = response["data"]["user"]["result"]["timeline"]["timeline"][
+                    "instructions"
+                ][-1]["entries"]
+            except (KeyError, IndexError):
+                break
+
+            # Extract users from the response
+            for entry in entries:
+                if entry["content"].get("__typename") == "TimelineTimelineItem":
+                    try:
+                        user_data = entry["content"]["itemContent"]["user_results"][
+                            "result"
+                        ]
+                        if user_data["__typename"] == "User":
+                            all_followers.append(User.from_api_response(user_data))
+                    except (KeyError, TypeError):
+                        continue
+
+            # Check if we need to continue fetching
+            if count != -1 and len(all_followers) >= count:
+                all_followers = all_followers[:count]
+                break
+
+            # Look for the bottom cursor
+            cursor = None
+            for entry in entries:
+                if (
+                    entry["content"].get("__typename") == "TimelineTimelineCursor"
+                    and entry["content"].get("cursorType") == "Bottom"
+                ):
+                    cursor = entry["content"].get("value")
+                    break
+
+            if not cursor:
+                break
+
+            # If we got less than requested in this batch, no need to continue
+            if count > 0 and len(entries) < variables["count"]:
+                break
+
+        return all_followers
+
+    def get_followers_you_know(
+        self,
+        user_id: str,
+        count: int = 20,
+        include_promoted_content: bool = False,
+    ) -> List[User]:
+        """Get a list of followers that you know for a specific user using GraphQL endpoint.
+
+        Args:
+            user_id: Twitter user ID
+            count: Number of followers to return (default: 20, set to -1 for all followers)
+            include_promoted_content: Include promoted content in results (default: False)
+
+        Returns:
+            List of User objects containing detailed user information
+        """
+        variables = {
+            "userId": user_id,
+            "count": min(count, 20) if count > 0 else 20,
+            "includePromotedContent": include_promoted_content,
+        }
+
+        all_followers = []
+        cursor = None
+
+        while True:
+            if cursor:
+                variables["cursor"] = cursor
+
+            response = self._make_request(
+                "GET",
+                "/graphql/FollowersYouKnow",
                 params={"variables": variables},
             )
 

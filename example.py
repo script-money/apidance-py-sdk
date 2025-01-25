@@ -57,6 +57,12 @@ def example_twitter_client():
     for follower in followers:
         print(follower)
 
+    # Example: Get followers you know
+    following = client.get_followers_you_know(user_id="1880358740152709121", count=30)
+    print(f"\nFound {len(following)} followers you know:")
+    for user in following:
+        print(user.username)
+
 
 if __name__ == "__main__":
     example_twitter_client()
