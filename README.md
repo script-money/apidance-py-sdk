@@ -75,6 +75,8 @@ client.favorite_tweet(tweet_id="tweet_id_to_like")
 - Search Following
 - Reply to tweets (requires auth_token)
 - Like tweets (requires auth_token)
+- Create tweets and reply to existing tweets
+- Create note tweets (long rich text tweet, requires Premium+)
 
 ## Models
 
