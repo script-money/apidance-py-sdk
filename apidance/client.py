@@ -107,25 +107,26 @@ class TwitterClient:
             # Handle Twitter API style errors
             if "errors" in response_data:
                 error = response_data["errors"][0]
-                if error.get("code") == 88:
+                if error.get("code") == 32:
+                    raise AuthenticationError(
+                        "Could not authenticate you. Please check your X_AUTH_TOKEN."
+                    )
+                elif error.get("code") == 64:
+                    raise AccountSuspendedError(
+                        "Your account is suspended and is not permitted to access this feature."
+                    )
+                elif error.get("code") == 88:
                     if attempt == self.max_retries:
                         raise RateLimitError(
                             "Rate limit exceeded. Please try again later."
                         )
                     return True
-                elif error.get("code") == 32:
-                    raise AuthenticationError(
-                        "Could not authenticate you. Please check your X_AUTH_TOKEN."
+                else:
+                    # Handle unknown error codes
+                    print(
+                        f"Unknown Twitter API error code: {error.get('code')}, message: {error.get('message', '')}"
                     )
-                elif error.get("code") == 366:
-                    print("NumericString value expected.")
-                    return False
-                elif error.get("code") == 64:
-                    raise AccountSuspendedError(
-                        "Your account is suspended and is not permitted to access this feature."
-                    )
-                elif error.get("code") == 139:
-                    return
+                    return False  # stop retrying
 
             # Handle Apidance API style errors
             if isinstance(response_data, dict):
