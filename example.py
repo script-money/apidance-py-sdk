@@ -63,6 +63,23 @@ def example_twitter_client():
     for user in following:
         print(user.username)
 
+    # Example: Create note tweet, requires Premium+
+    long_text = """
+This is a test tweet to check the length, formatting, and overall look of a longer tweet. I want to see how it appears on different devices and if there are any unexpected line breaks or display issues.
+
+I'm also testing the use of hashtags and mentions. Will they work correctly and improve *discoverability*? Let's find out! #TestTweet @YourAccount
+
+This tweet includes a question to **encourage engagement**. Are people more likely to respond or interact with a longer tweet that asks a question?
+
+Finally, I'm adding a few more sentences to reach the desired word count and see how the tweet handles a variety of sentence lengths and structures.  What do you think of longer-form content on Twitter? Does it have a place? Let me know your thoughts!  Testing, testing, 1, 2, 3! Just a few more words now. This is the end.
+    """
+    note_tweet_id = client.create_note_tweet(
+        text=long_text,
+        use_richtext=True,
+        reply_to_tweet_id="1859428851736248469",
+    )
+    print(f"New note tweet created successfully with ID: {note_tweet_id}")
+
 
 if __name__ == "__main__":
     example_twitter_client()

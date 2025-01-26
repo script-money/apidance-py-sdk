@@ -4,13 +4,12 @@ import time
 from typing import Optional, Dict, Any, List
 import httpx
 from dotenv import load_dotenv
-from apidance.models import Tweet, User
+from .models import Tweet, User
+from .utils import parse_markdown_to_richtext
 from .exceptions import (
     AuthenticationError,
     RateLimitError,
-    InsufficientCreditsError,
-    TimeoutError,
-    AccountSuspendedError,
+    ValidationError,
 )
 
 load_dotenv()
@@ -111,10 +110,10 @@ class TwitterClient:
                     raise AuthenticationError(
                         "Could not authenticate you. Please check your X_AUTH_TOKEN."
                     )
+                elif error.get("code") == 37:
+                    raise ValidationError("Validation error")
                 elif error.get("code") == 64:
-                    raise AccountSuspendedError(
-                        "Your account is suspended and is not permitted to access this feature."
-                    )
+                    raise ValidationError("Validation error")
                 elif error.get("code") == 88:
                     if attempt == self.max_retries:
                         raise RateLimitError(
@@ -135,9 +134,7 @@ class TwitterClient:
                         "insufficient api counts"
                         in response_data.get("msg", "").lower()
                     ):
-                        raise InsufficientCreditsError(
-                            "Insufficient API credits. Please contact support via Telegram: @shingle"
-                        )
+                        raise ValidationError("Validation error")
 
             # Handle other error cases
             if (
@@ -187,6 +184,7 @@ class TwitterClient:
         auth_required_endpoints = [
             "/graphql/FollowersYouKnow",
             "/graphql/CreateTweet",
+            "/graphql/CreateNoteTweet",
             "/graphql/FavoriteTweet",
         ]
         if endpoint in auth_required_endpoints:
@@ -207,7 +205,7 @@ class TwitterClient:
                         return response.json()
                 except (
                     RateLimitError,
-                    InsufficientCreditsError,
+                    ValidationError,
                     AuthenticationError,
                 ):  # These are explicit errors, raise immediately
                     raise
@@ -420,9 +418,9 @@ class TwitterClient:
                 # Extract cursor for next page
                 elif (
                     content.get("__typename") == "TimelineTimelineCursor"
-                    and content["cursorType"] == "Bottom"
+                    and content.get("cursorType") == "Bottom"
                 ):
-                    cursor = content["value"]
+                    cursor = content.get("value")
 
                 # Handle tweets in modules
                 elif content.get("__typename") == "TimelineTimelineModule":
@@ -878,6 +876,62 @@ class TwitterClient:
             return tweet_id
         except (KeyError, TypeError):
             print("Failed to create tweet")
+            return None
+
+    def create_note_tweet(
+        self, text: str, use_richtext: bool = False, reply_to_tweet_id: str = None
+    ) -> str:
+        """Create a new note tweet. (Long text tweet, only available in Premium+)
+
+        Args:
+            text: The text content of the tweet (supports markdown if use_richtext=True)
+            use_richtext: Whether to parse markdown formatting for rich text
+            reply_to_tweet_id: Optional tweet ID to reply to
+
+        Returns:
+            str: The ID of the created tweet
+
+        Raises:
+            PremiumRequiredError: If the user doesn't have Premium+ plan
+        """
+        richtext_options = {}
+
+        variables = {
+            "tweet_text": text,
+            "dark_request": False,
+            "media": {"media_entities": [], "possibly_sensitive": False},
+            "semantic_annotation_ids": [],
+            "includePromotedContent": False,
+        }
+
+        if use_richtext:
+            text, richtext_tags = parse_markdown_to_richtext(text)
+            if richtext_tags:
+                richtext_options["richtext_tags"] = richtext_tags
+                variables["richtext_options"] = richtext_options
+
+        # Add reply information if replying to a tweet
+        if reply_to_tweet_id:
+            variables["reply"] = {
+                "in_reply_to_tweet_id": reply_to_tweet_id,
+                "exclude_reply_user_ids": [],
+            }
+
+        response = self._make_request(
+            "POST",
+            "/graphql/CreateNoteTweet",
+            json={"variables": variables},
+        )
+
+        # Extract the tweet ID from the response
+        try:
+            tweet_id = response["data"]["notetweet_create"]["tweet_results"]["result"][
+                "rest_id"
+            ]
+            print(f"Note tweet created successfully with ID: {tweet_id}")
+            return tweet_id
+        except (KeyError, TypeError):
+            print("Failed to create note tweet")
             return None
 
     def tweet_result_by_rest_id(self, tweet_id: str):
