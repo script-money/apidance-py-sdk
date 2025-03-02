@@ -1,7 +1,8 @@
 import os
 import json
 import time
-from typing import Optional, Dict, Any, List
+import re
+from typing import Optional, Dict, Any, List, Union
 import httpx
 from dotenv import load_dotenv
 from .models import Tweet, User
@@ -103,8 +104,7 @@ class TwitterClient:
         try:
             response_data = response.json()
 
-            # Handle Twitter API style errors
-            if "errors" in response_data:
+            if response_data is not None and "errors" in response_data:
                 error = response_data["errors"][0]
                 if error.get("code") == 32:
                     raise AuthenticationError(
@@ -130,24 +130,21 @@ class TwitterClient:
                     return False  # stop retrying
 
             # Handle Apidance API style errors
-            if isinstance(response_data, dict):
-                if response_data.get("code") == 401:
-                    if (
-                        "insufficient api counts"
-                        in response_data.get("msg", "").lower()
-                    ):
-                        raise ValidationError("Insufficient api credits")
+            if (
+                response_data is not None
+                and isinstance(response_data, dict)
+                and response_data.get("code") == 401
+            ):
+                if "insufficient api counts" in response_data.get("msg", "").lower():
+                    raise ValidationError("Insufficient api credits")
 
             # Handle other error cases
-            if (
-                response.text == "local_rate_limited"
-                or response.text == "null"
-                or response_data is None
-            ):
+            if response.text == "local_rate_limited":
                 return True
 
             # If response is normal, no need to retry
-            if response_data and not response_data.get("errors"):
+            if response_data is None or not response_data.get("errors"):
+                print("Response is null")
                 return False
 
             return True
@@ -191,6 +188,10 @@ class TwitterClient:
         ]
         if endpoint in auth_required_endpoints:
             if token:
+                if not re.match(r"^[0-9a-f]{40}$", token):
+                    raise ValidationError(
+                        f"Invalid AuthToken format. Expected 40 character hexadecimal string, got: {token}"
+                    )
                 headers["AuthToken"] = token
 
         last_error = None
@@ -362,7 +363,7 @@ class TwitterClient:
 
     def get_list_latest_tweets(
         self,
-        list_id: str,
+        list_id: Union[int, str],
         count: int = 20,
         include_promoted_content: bool = False,
     ) -> List[Tweet]:
@@ -381,7 +382,7 @@ class TwitterClient:
 
         while True:
             variables = {
-                "listId": list_id,
+                "listId": str(list_id),
                 "count": count,
                 "includePromotedContent": include_promoted_content,
             }
@@ -534,7 +535,7 @@ class TwitterClient:
 
     def get_user_tweets(
         self,
-        user_id: str,
+        user_id: Union[int, str],
         count: int = 20,
         include_pins: bool = True,
         include_promoted_content: bool = False,
@@ -561,7 +562,7 @@ class TwitterClient:
 
         while True:
             variables = {
-                "userId": user_id,
+                "userId": str(user_id),
                 "count": batch_size,
                 "cursor": cursor,
                 "includePromotedContent": include_promoted_content,
@@ -604,7 +605,7 @@ class TwitterClient:
 
         return all_tweets
 
-    def get_following(self, user_id: str) -> List[User]:
+    def get_following(self, user_id: Union[int, str]) -> List[User]:
         """Get a list of users that the specified user is following.
 
         Args:
@@ -615,7 +616,7 @@ class TwitterClient:
         """
 
         variables = {
-            "userId": user_id,
+            "userId": str(user_id),
             "includePromotedContent": False,
         }
 
@@ -655,7 +656,7 @@ class TwitterClient:
 
     def get_followers(
         self,
-        user_id: str,
+        user_id: Union[int, str],
         count: int = 20,
         include_promoted_content: bool = False,
     ) -> List[User]:
@@ -670,7 +671,7 @@ class TwitterClient:
             List of User objects containing detailed user information
         """
         variables = {
-            "userId": user_id,
+            "userId": str(user_id),
             "count": min(count, 20) if count > 0 else 20,
             "includePromotedContent": include_promoted_content,
         }
@@ -733,7 +734,7 @@ class TwitterClient:
 
     def get_followers_you_know(
         self,
-        user_id: str,
+        user_id: Union[int, str],
         count: int = 20,
         include_promoted_content: bool = False,
     ) -> List[User]:
@@ -748,7 +749,7 @@ class TwitterClient:
             List of User objects containing detailed user information
         """
         variables = {
-            "userId": user_id,
+            "userId": str(user_id),
             "count": min(count, 20) if count > 0 else 20,
             "includePromotedContent": include_promoted_content,
         }
@@ -809,10 +810,10 @@ class TwitterClient:
 
         return all_followers
 
-    def favorite_tweet(self, tweet_id: str) -> bool:
+    def favorite_tweet(self, tweet_id: Union[int, str]) -> bool:
 
         variables = {
-            "tweet_id": tweet_id,
+            "tweet_id": str(tweet_id),
         }
 
         response = self._make_request(
@@ -820,7 +821,6 @@ class TwitterClient:
             "/graphql/FavoriteTweet",
             json={"variables": variables},
         )
-
         if response == {"data": {"favorite_tweet": "Done"}}:
             print(f"Tweet: {tweet_id} favorited")
             return True
@@ -839,7 +839,7 @@ class TwitterClient:
 
         return False
 
-    def create_tweet(self, text: str, reply_to_tweet_id: str = None) -> str:
+    def create_tweet(self, text: str, reply_to_tweet_id: Union[int, str] = None) -> str:
         """Create a new tweet or reply to an existing tweet.
 
         Args:
@@ -859,7 +859,7 @@ class TwitterClient:
         # Add reply information if replying to a tweet
         if reply_to_tweet_id:
             variables["reply"] = {
-                "in_reply_to_tweet_id": reply_to_tweet_id,
+                "in_reply_to_tweet_id": str(reply_to_tweet_id),
                 "exclude_reply_user_ids": [],
             }
 
@@ -881,7 +881,10 @@ class TwitterClient:
             return None
 
     def create_note_tweet(
-        self, text: str, use_richtext: bool = False, reply_to_tweet_id: str = None
+        self,
+        text: str,
+        use_richtext: bool = False,
+        reply_to_tweet_id: Union[int, str] = None,
     ) -> str:
         """Create a new note tweet. (Long text tweet, only available in Premium+)
 
@@ -915,7 +918,7 @@ class TwitterClient:
         # Add reply information if replying to a tweet
         if reply_to_tweet_id:
             variables["reply"] = {
-                "in_reply_to_tweet_id": reply_to_tweet_id,
+                "in_reply_to_tweet_id": str(reply_to_tweet_id),
                 "exclude_reply_user_ids": [],
             }
 
@@ -936,9 +939,9 @@ class TwitterClient:
             print("Failed to create note tweet")
             return None
 
-    def tweet_result_by_rest_id(self, tweet_id: str):
+    def tweet_result_by_rest_id(self, tweet_id: Union[int, str]):
         variables = {
-            "tweetId": tweet_id,
+            "tweetId": str(tweet_id),
             "withHighlightedLabel": True,
             "withTweetQuoteCount": True,
             "includePromotedContent": True,
