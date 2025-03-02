@@ -3,7 +3,7 @@ name = "apidance"
 version = "0.6.0"
 description = "https://apidance.pro/ community python sdk"
 authors = [{ name = "script-money", email = "hello@script.money" }]
-license = "MIT"
+license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
 
