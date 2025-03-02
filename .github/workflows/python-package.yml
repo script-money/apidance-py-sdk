@@ -12,25 +12,25 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: "3.8"
+        python-version: "3.10"
     
-    - name: Install Poetry
-      uses: snok/install-poetry@v1
-      with:
-        version: 1.8.4
-        virtualenvs-create: true
-        virtualenvs-in-project: true
+    - name: Install uv
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
     
     - name: Install dependencies
-      run: poetry install --no-interaction
+      run: |
+        uv pip install --system -e ".[dev]"
     
     - name: Build package
-      run: poetry build
+      run: |
+        uv pip install --system build
+        python -m build
     
     - name: Check package structure
       run: |
@@ -42,23 +42,29 @@ jobs:
     if: github.event_name == 'release' && github.event.action == 'created'
     
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: "3.8"
+        python-version: "3.10"
     
-    - name: Install Poetry
-      uses: snok/install-poetry@v1
-      with:
-        version: 1.8.4
-        virtualenvs-create: true
-        virtualenvs-in-project: true
-    
-    - name: Build and publish
-      env:
-        POETRY_PYPI_TOKEN_PYPI: ${{ secrets.PYPI_TOKEN }}
+    - name: Install uv
       run: |
-        poetry build
-        poetry publish
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+    
+    - name: Install build dependencies
+      run: |
+        uv pip install --system build twine
+    
+    - name: Build package
+      run: python -m build
+    
+    - name: Check distribution
+      run: twine check dist/*
+    
+    - name: Publish to PyPI
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+      run: twine upload dist/*
