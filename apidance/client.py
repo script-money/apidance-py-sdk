@@ -111,9 +111,11 @@ class TwitterClient:
                         "Could not authenticate you. Please check your X_AUTH_TOKEN."
                     )
                 elif error.get("code") == 37:
-                    raise ValidationError("Validation error")
+                    raise ValidationError(
+                        "Twitter Blue claim is not enabled for note tweet"
+                    )
                 elif error.get("code") == 64:
-                    raise ValidationError("Validation error")
+                    raise ValidationError(error.get("message", ""))
                 elif error.get("code") == 88:
                     if attempt == self.max_retries:
                         raise RateLimitError(
@@ -134,7 +136,7 @@ class TwitterClient:
                         "insufficient api counts"
                         in response_data.get("msg", "").lower()
                     ):
-                        raise ValidationError("Validation error")
+                        raise ValidationError("Insufficient api credits")
 
             # Handle other error cases
             if (
