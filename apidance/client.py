@@ -1,16 +1,22 @@
 import os
 import json
 import time
-from typing import Optional, Dict, Any, List
+import re
+from typing import Optional, Dict, Any, List, Union
 import httpx
 from dotenv import load_dotenv
 from .models import Tweet, User
-from .utils import parse_markdown_to_richtext
 from .exceptions import (
-    AuthenticationError,
+    TwitterPlatformError,
+    InvalidInputError,
     RateLimitError,
-    ValidationError,
+    InsufficientCreditsError,
+    TimeoutError,
+    ApidancePlatformError,
+    ApiKeyError,
+    AuthTokenError,
 )
+from .utils import parse_markdown_to_richtext
 
 load_dotenv()
 
@@ -39,19 +45,16 @@ class TwitterClient:
         """
         self.api_key = api_key or os.getenv("APIDANCE_API_KEY")
         if not self.api_key:
-            raise ValueError(
+            raise ApiKeyError(
                 "API key must be provided either through constructor or APIDANCE_API_KEY environment variable"
             )
 
         # Check balance
         balance = self.check_balance()
         if int(balance) < 100:
-            print(
+            raise InsufficientCreditsError(
                 f"Warning: Your API balance is low ({balance}). Please recharge your account."
             )
-            response = input("Do you want to continue? [y/N]: ")
-            if response.lower() != "y":
-                raise SystemExit("Operation cancelled by user.")
 
         self.base_url = base_url
         self.client = httpx.Client()
@@ -100,59 +103,53 @@ class TwitterClient:
         if attempt >= self.max_retries:
             return False
 
+        # Try to parse the response as JSON
+        response_data = None
         try:
             response_data = response.json()
-
-            # Handle Twitter API style errors
-            if "errors" in response_data:
-                error = response_data["errors"][0]
-                if error.get("code") == 32:
-                    raise AuthenticationError(
-                        "Could not authenticate you. Please check your X_AUTH_TOKEN."
-                    )
-                elif error.get("code") == 37:
-                    raise ValidationError("Validation error")
-                elif error.get("code") == 64:
-                    raise ValidationError("Validation error")
-                elif error.get("code") == 88:
-                    if attempt == self.max_retries:
-                        raise RateLimitError(
-                            "Rate limit exceeded. Please try again later."
-                        )
-                    return True
-                else:
-                    # Handle unknown error codes
-                    print(
-                        f"Unknown Twitter API error code: {error.get('code')}, message: {error.get('message', '')}"
-                    )
-                    return False  # stop retrying
-
-            # Handle Apidance API style errors
-            if isinstance(response_data, dict):
-                if response_data.get("code") == 401:
-                    if (
-                        "insufficient api counts"
-                        in response_data.get("msg", "").lower()
-                    ):
-                        raise ValidationError("Validation error")
-
-            # Handle other error cases
-            if (
-                response.text == "local_rate_limited"
-                or response.text == "null"
-                or response_data is None
-            ):
-                return True
-
-            # If response is normal, no need to retry
-            if response_data and not response_data.get("errors"):
-                return False
-
-            return True
-
         except json.JSONDecodeError:
             # JSON parse error might be temporary, allow retry
             return True
+
+        # Handle Twitter-style errors (with "errors" array)
+        if response_data is not None and "errors" in response_data:
+            error = response_data["errors"][0]
+            error_code = error.get("code")
+
+            # Rate limit error
+            if error_code == 88:
+                if attempt == self.max_retries:
+                    raise RateLimitError("Rate limit exceeded. Please try again later.")
+                return True
+            # Other Twitter platform errors
+            elif error_code == 366:
+                raise InvalidInputError(error.get("message", ""))
+            elif error_code == 139:  # Tweet already favorited
+                return False
+            elif (
+                error_code == 64
+            ):  # Account is suspended and is not permitted to access this feature, retry
+                return True
+            else:
+                raise TwitterPlatformError(error.get("message", ""))
+
+        # Handle Apidance API style errors
+        if response_data is not None and response_data.get("code", 0) > 0:
+            msg = response_data.get("msg", "").lower()
+            if "insufficient api counts" in msg:
+                raise InsufficientCreditsError("Insufficient api credits")
+            else:
+                raise ApidancePlatformError(msg)
+
+        # Handle local rate limiting
+        if response.text == "local_rate_limited":
+            return True
+
+        # Handle specific error cases based on response data
+        if "data" in response_data:
+            return False
+
+        return False
 
     def _make_request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Make an API request with retry logic.
@@ -166,10 +163,12 @@ class TwitterClient:
             API response data
 
         Raises:
-            AuthenticationError: When authentication fails
-            TimeoutError: When request times out
+            AuthTokenError: When authentication token is invalid
+            PremiumRequiredError: When Premium+ is required
             RateLimitError: When rate limit is exceeded
             InsufficientCreditsError: When API credits are depleted
+            TimeoutError: When request times out
+            ApidancePlatformError: When the platform returns other errors
         """
         url = f"{self.base_url}{endpoint}"
 
@@ -189,12 +188,26 @@ class TwitterClient:
         ]
         if endpoint in auth_required_endpoints:
             if token:
+                if not re.match(r"^[0-9a-f]{40}$", token):
+                    raise AuthTokenError(
+                        f"Invalid AuthToken format. Expected 40 character hexadecimal string, got: {token}"
+                    )
                 headers["AuthToken"] = token
 
+        # Specific exceptions that should not be retried
+        fatal_exceptions = (
+            AuthTokenError,
+            InsufficientCreditsError,
+            ApidancePlatformError,
+        )
+
+        # Error storage
         last_error = None
+
         # Retry loop
         for attempt in range(1, self.max_retries + 1):
             try:
+                # Make the actual HTTP request
                 response = self.client.request(
                     method, url, headers=headers, timeout=10, **kwargs
                 )
@@ -203,36 +216,87 @@ class TwitterClient:
                     # Check if retry is needed
                     if not self._should_retry(response, attempt):
                         return response.json()
-                except (
-                    RateLimitError,
-                    ValidationError,
-                    AuthenticationError,
-                ):  # These are explicit errors, raise immediately
+                except fatal_exceptions:
+                    # These are explicit errors that should not be retried
                     raise
+                except RateLimitError:
+                    # Rate limit errors are handled directly in _should_retry
+                    if attempt == self.max_retries:
+                        raise
+                    # If we're not at max retries, _should_retry will return True to continue
                 except Exception as e:
                     # Record other errors and continue retrying
                     last_error = e
+                    break
 
                 # Calculate delay for next retry
                 delay = self._calculate_retry_delay(attempt)
                 time.sleep(delay)
 
-            except httpx.ConnectTimeout:
-                raise TimeoutError("The handshake operation timed out") from None
+            except httpx.ConnectError as e:
+                if attempt == self.max_retries:
+                    raise TimeoutError(f"Connection error: {str(e)}") from e
+                # For network errors before max_retries, try again
+                last_error = e
+                delay = self._calculate_retry_delay(attempt)
+                time.sleep(delay)
+            except Exception as e:
+                # Catch any other unexpected errors
+                if attempt == self.max_retries:
+                    raise ApidancePlatformError(f"Unexpected error: {str(e)}") from e
+                last_error = e
+                delay = self._calculate_retry_delay(attempt)
+                time.sleep(delay)
 
-        # If all retries failed, raise the last error
+        # If all retries failed, raise the final error
         if last_error:
             raise last_error
-        return None
 
     def check_balance(self) -> int:
         """Check the remaining balance for the API key.
 
         Returns:
             int: Remaining balance
+
+        Note:
+            Returns 0 if connection fails or API returns error
         """
-        response = httpx.get(f"https://api.apidance.pro/key/{self.api_key}")
-        return response.text
+        try:
+            response = httpx.get(
+                f"https://api.apidance.pro/key/{self.api_key}", timeout=5.0, verify=True
+            )
+
+            # Try to parse as JSON
+            try:
+                data = response.json()
+                # If the response is a direct integer
+                if isinstance(data, int):
+                    return data
+                # If the response is an error object
+                if isinstance(data, dict) and data.get("code") == -1:
+                    return 0
+                # Any other JSON response, try to convert text to int
+                return int(response.text)
+            except (json.JSONDecodeError, ValueError):
+                # If not valid JSON but has text, try parsing as int
+                if response.text:
+                    try:
+                        return int(response.text)
+                    except ValueError:
+                        return 0
+                return 0
+
+        except (
+            httpx.ConnectError,
+            httpx.ConnectTimeout,
+            httpx.ReadTimeout,
+            httpx.HTTPError,
+            httpx.HTTPStatusError,
+        ) as e:
+            # Log the error if needed
+            print(f"Warning: Could not connect to API server: {e}")
+            # Return 0 as default balance when unable to check
+            return 0
 
     def search_timeline(
         self,
@@ -360,7 +424,7 @@ class TwitterClient:
 
     def get_list_latest_tweets(
         self,
-        list_id: str,
+        list_id: Union[int, str],
         count: int = 20,
         include_promoted_content: bool = False,
     ) -> List[Tweet]:
@@ -379,7 +443,7 @@ class TwitterClient:
 
         while True:
             variables = {
-                "listId": list_id,
+                "listId": str(list_id),
                 "count": count,
                 "includePromotedContent": include_promoted_content,
             }
@@ -532,7 +596,7 @@ class TwitterClient:
 
     def get_user_tweets(
         self,
-        user_id: str,
+        user_id: Union[int, str],
         count: int = 20,
         include_pins: bool = True,
         include_promoted_content: bool = False,
@@ -559,7 +623,7 @@ class TwitterClient:
 
         while True:
             variables = {
-                "userId": user_id,
+                "userId": str(user_id),
                 "count": batch_size,
                 "cursor": cursor,
                 "includePromotedContent": include_promoted_content,
@@ -602,7 +666,7 @@ class TwitterClient:
 
         return all_tweets
 
-    def get_following(self, user_id: str) -> List[User]:
+    def get_following(self, user_id: Union[int, str]) -> List[User]:
         """Get a list of users that the specified user is following.
 
         Args:
@@ -613,7 +677,7 @@ class TwitterClient:
         """
 
         variables = {
-            "userId": user_id,
+            "userId": str(user_id),
             "includePromotedContent": False,
         }
 
@@ -653,7 +717,7 @@ class TwitterClient:
 
     def get_followers(
         self,
-        user_id: str,
+        user_id: Union[int, str],
         count: int = 20,
         include_promoted_content: bool = False,
     ) -> List[User]:
@@ -668,7 +732,7 @@ class TwitterClient:
             List of User objects containing detailed user information
         """
         variables = {
-            "userId": user_id,
+            "userId": str(user_id),
             "count": min(count, 20) if count > 0 else 20,
             "includePromotedContent": include_promoted_content,
         }
@@ -731,7 +795,7 @@ class TwitterClient:
 
     def get_followers_you_know(
         self,
-        user_id: str,
+        user_id: Union[int, str],
         count: int = 20,
         include_promoted_content: bool = False,
     ) -> List[User]:
@@ -746,7 +810,7 @@ class TwitterClient:
             List of User objects containing detailed user information
         """
         variables = {
-            "userId": user_id,
+            "userId": str(user_id),
             "count": min(count, 20) if count > 0 else 20,
             "includePromotedContent": include_promoted_content,
         }
@@ -807,10 +871,10 @@ class TwitterClient:
 
         return all_followers
 
-    def favorite_tweet(self, tweet_id: str) -> bool:
+    def favorite_tweet(self, tweet_id: Union[int, str]) -> bool:
 
         variables = {
-            "tweet_id": tweet_id,
+            "tweet_id": str(tweet_id),
         }
 
         response = self._make_request(
@@ -818,7 +882,6 @@ class TwitterClient:
             "/graphql/FavoriteTweet",
             json={"variables": variables},
         )
-
         if response == {"data": {"favorite_tweet": "Done"}}:
             print(f"Tweet: {tweet_id} favorited")
             return True
@@ -837,7 +900,7 @@ class TwitterClient:
 
         return False
 
-    def create_tweet(self, text: str, reply_to_tweet_id: str = None) -> str:
+    def create_tweet(self, text: str, reply_to_tweet_id: Union[int, str] = None) -> str:
         """Create a new tweet or reply to an existing tweet.
 
         Args:
@@ -857,7 +920,7 @@ class TwitterClient:
         # Add reply information if replying to a tweet
         if reply_to_tweet_id:
             variables["reply"] = {
-                "in_reply_to_tweet_id": reply_to_tweet_id,
+                "in_reply_to_tweet_id": str(reply_to_tweet_id),
                 "exclude_reply_user_ids": [],
             }
 
@@ -879,7 +942,10 @@ class TwitterClient:
             return None
 
     def create_note_tweet(
-        self, text: str, use_richtext: bool = False, reply_to_tweet_id: str = None
+        self,
+        text: str,
+        use_richtext: bool = False,
+        reply_to_tweet_id: Union[int, str] = None,
     ) -> str:
         """Create a new note tweet. (Long text tweet, only available in Premium+)
 
@@ -913,7 +979,7 @@ class TwitterClient:
         # Add reply information if replying to a tweet
         if reply_to_tweet_id:
             variables["reply"] = {
-                "in_reply_to_tweet_id": reply_to_tweet_id,
+                "in_reply_to_tweet_id": str(reply_to_tweet_id),
                 "exclude_reply_user_ids": [],
             }
 
@@ -934,9 +1000,9 @@ class TwitterClient:
             print("Failed to create note tweet")
             return None
 
-    def tweet_result_by_rest_id(self, tweet_id: str):
+    def tweet_result_by_rest_id(self, tweet_id: Union[int, str]):
         variables = {
-            "tweetId": tweet_id,
+            "tweetId": str(tweet_id),
             "withHighlightedLabel": True,
             "withTweetQuoteCount": True,
             "includePromotedContent": True,
@@ -951,6 +1017,7 @@ class TwitterClient:
             params={"variables": variables},
         )
 
+        # {'data': {'tweetResult': {}}}
         # response maybe []
 
         return Tweet.from_api_response(response["data"])

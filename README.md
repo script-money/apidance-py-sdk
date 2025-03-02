@@ -14,10 +14,12 @@ Create a `.env` file in your project root with your API credentials:
 
 ```env
 APIDANCE_API_KEY=your_api_key_here
-AUTH_TOKEN=your_auth_token_here  # Required for reply/like actions
+X_AUTH_TOKEN=your_x_auth_token_here  # Required for reply/like actions
 ```
 
-You can find your `auth_token` in your browser cookies when logged into x.com:
+Get your API key from [https://apidance.pro](https://apidance.pro)
+
+You can find your `X_AUTH_TOKEN` in your browser cookies when logged into x.com:
 1. Open x.com and log in
 2. Open browser developer tools (F12 or right-click -> Inspect)
 3. Go to Application/Storage -> Cookies -> x.com
@@ -67,6 +69,25 @@ client.create_tweet(
 client.favorite_tweet(tweet_id="tweet_id_to_like")
 ```
 
+## MCP server
+
+FillSet config file
+```json
+{
+    "mcpServers": {
+        "apidance": {
+            "command": "/path/to/uv",
+            "args": [
+                "--directory",
+                "/path/to/apidance-sdk",
+                "run",
+                "mcp_server.py"
+            ]
+        }
+    }
+}
+```
+
 ## Features
 
 - Search Twitter timeline with various filters (Latest, Top, People, Photos, Videos)
@@ -77,6 +98,7 @@ client.favorite_tweet(tweet_id="tweet_id_to_like")
 - Like tweets (requires auth_token)
 - Create tweets and reply to existing tweets
 - Create note tweets (long rich text tweet, requires Premium+)
+- Host as mcp server
 
 ## Models
 

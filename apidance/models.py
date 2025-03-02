@@ -1,10 +1,21 @@
-from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from pydantic import BaseModel
 
 
-@dataclass
-class User:
+class BaseApiModel(BaseModel):
+    """Base model for all Apidance models with dict-like access and serialization support."""
+
+    def __getitem__(self, item):
+        return getattr(self, item)
+
+    def model_dump(self, **kwargs):
+        """Override model_dump to handle datetime serialization."""
+        kwargs.setdefault("mode", "json")
+        return super().model_dump(**kwargs)
+
+
+class User(BaseApiModel):
     id: str
     name: str
     username: str
@@ -49,29 +60,25 @@ class User:
         )
 
 
-@dataclass
-class Media:
+class Media(BaseApiModel):
     type: str  # photo, video, etc.
     url: str
     expanded_url: str
     preview_url: Optional[str] = None
 
 
-@dataclass
-class URL:
+class URL(BaseApiModel):
     expanded_url: str
     url: str
 
 
-@dataclass
-class UserMention:
+class UserMention(BaseApiModel):
     id: str
     name: str
     screen_name: str
 
 
-@dataclass
-class Tweet:
+class Tweet(BaseApiModel):
     id: str
     text: str
     created_at: int  # Unix timestamp
@@ -99,7 +106,7 @@ class Tweet:
         """
 
         # Get tweet result from either "tweet_results" or "tweetResult"
-        if data.get("tweet_results") == {}:
+        if data.get("tweet_results") == {} or data.get("tweetResult") == {}:
             return
 
         tweet_result = data.get("tweet_results", {}).get("result") or data.get(
