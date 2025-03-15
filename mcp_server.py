@@ -98,7 +98,7 @@ async def get_tweet_by_id(tweet_id: Union[int, str]) -> Dict[str, Any]:
         tweet = twitter_client.tweet_result_by_rest_id(tweet_id)
 
         if tweet:
-            return {"success": True, "tweet": tweet.model_dump()}
+            return {"success": True, "tweet": tweet.text}
         else:
             return {"success": False, "message": "Tweet not found"}
     except Exception as e:
@@ -137,13 +137,13 @@ async def search_tweets(
         )
 
         if search_results:
-            # Convert Tweet objects to dictionaries
-            tweets_data = [tweet.model_dump() for tweet in search_results]
+            # Extract only the text content from tweets for LLM processing
+            tweets_text = [tweet.text for tweet in search_results]
             return {
                 "success": True,
-                "tweets": tweets_data,
-                "count": len(tweets_data),
-                "message": f"Found {len(tweets_data)} tweets matching query: {query}",
+                "tweets": tweets_text,
+                "count": len(tweets_text),
+                "message": f"Found {len(tweets_text)} tweets matching query: {query}",
             }
         else:
             return {
@@ -233,14 +233,14 @@ async def get_user_tweets(
         tweets = twitter_client.get_user_tweets(user_id=user_id, count=count)
 
         if tweets:
-            # Convert Tweet objects to dictionaries
-            tweets_data = [tweet.model_dump() for tweet in tweets]
+            # Extract only the text content from tweets for LLM processing
+            tweets_text = [tweet.text for tweet in tweets]
             return {
                 "success": True,
-                "tweets": tweets_data,
-                "count": len(tweets_data),
+                "tweets": tweets_text,
+                "count": len(tweets_text),
                 "user_id": user_id,
-                "message": f"Found {len(tweets_data)} tweets for user ID: {user_id}",
+                "message": f"Found {len(tweets_text)} tweets for user ID: {user_id}",
             }
         else:
             return {
@@ -300,6 +300,59 @@ async def create_note_tweet(
             "success": False,
             "error": str(e),
             "message": "An unexpected error occurred while creating note tweet",
+        }
+
+
+@mcp.tool()
+async def get_list_tweets(
+    list_id: Union[str, int], count: int = 20, include_promoted_content: bool = False
+) -> Dict[str, Any]:
+    """
+    Get latest tweets from a specific Twitter list.
+
+    Args:
+        list_id: ID of the Twitter list
+        count: Number of tweets to return (default: 20)
+        include_promoted_content: Include promoted content in results (default: False)
+
+    Returns:
+        Dict containing the list tweets
+    """
+    if twitter_client is None:
+        return {
+            "success": False,
+            "message": "Twitter client not initialized. Check APIDANCE_API_KEY environment variable.",
+        }
+
+    try:
+        # Get tweets from the list
+        list_tweets = twitter_client.get_list_latest_tweets(
+            list_id=list_id,
+            count=count,
+            include_promoted_content=include_promoted_content,
+        )
+
+        if list_tweets:
+            # Extract only the text content from tweets for LLM processing
+            tweets_text = [tweet.text for tweet in list_tweets]
+            return {
+                "success": True,
+                "tweets": tweets_text,
+                "count": len(tweets_text),
+                "message": f"Found {len(tweets_text)} tweets in list {list_id}",
+            }
+        else:
+            return {
+                "success": True,
+                "tweets": [],
+                "count": 0,
+                "message": f"No tweets found in list {list_id}",
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Failed to retrieve tweets from list {list_id}",
         }
 
 
