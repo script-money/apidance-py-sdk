@@ -1,6 +1,6 @@
 [project]
 name = "apidance"
-version = "0.6.1"
+version = "0.6.2"
 description = "https://apidance.pro/ community python sdk"
 authors = [{ name = "script-money", email = "hello@script.money" }]
 license = { text = "MIT" }
