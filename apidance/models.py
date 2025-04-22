@@ -35,7 +35,7 @@ class User(BaseApiModel):
         if description and entities.get("description", {}).get("urls"):
             for url_data in entities["description"]["urls"]:
                 description = description.replace(
-                    url_data["url"], url_data["expanded_url"]
+                    url_data["url"], url_data.get("expanded_url", "")
                 )
 
         is_verified = data.get("is_blue_verified", False)
@@ -63,13 +63,13 @@ class User(BaseApiModel):
 class Media(BaseApiModel):
     type: str  # photo, video, etc.
     url: str
-    expanded_url: str
+    expanded_url: Optional[str] = None
     preview_url: Optional[str] = None
 
 
 class URL(BaseApiModel):
-    expanded_url: str
     url: str
+    expanded_url: Optional[str] = None
 
 
 class UserMention(BaseApiModel):
@@ -153,8 +153,8 @@ class Tweet(BaseApiModel):
             for url in legacy["entities"]["urls"]:
                 urls.append(
                     URL(
-                        expanded_url=url["expanded_url"],
                         url=url["url"],
+                        expanded_url=url.get("expanded_url"),
                     )
                 )
 
